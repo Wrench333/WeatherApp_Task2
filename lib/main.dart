@@ -1,22 +1,16 @@
 import 'package:flutter/material.dart';
 import 'weather_service.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'firebase_options.dart';
-import 'login_page.dart';
+//import 'package:firebase_core/firebase_core.dart';
+//import 'firebase_options.dart';
+//import 'login_page.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  try {
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-    print('its working');
-  } catch (e) {
-    print('Error during Firebase initialization: $e');
-  }
+void main() {
   runApp(MaterialApp(
     debugShowCheckedModeBanner: false,
-    initialRoute: '/login',
+    initialRoute: '/',
     routes: {
-      '/login': (context) => LoginPage(),
       '/': (context) => Home(),
       '/second': (context) => CitySelectPage(),
       '/fiveDayForecast': (context) => FiveDayForecastPage(),
@@ -53,12 +47,16 @@ class _HomeState extends State<Home> {
 
   @override
   void initState() {
-    fetchWeatherData('Pilani');
     super.initState();
+    fetchWeatherData('Pilani');
   }
 
-  Future<void> updateWeatherData(CityData selectedCity) async {
-    await fetchWeatherData(selectedCity.name);
+  Future<void> updateWeatherData(String selectedCity) async {
+    try {
+      await fetchWeatherData(selectedCity);
+    } catch (e) {
+      print('Error updating weather data: $e');
+    }
   }
 
   @override
@@ -77,6 +75,7 @@ class _HomeState extends State<Home> {
 
       return Scaffold(
         appBar: AppBar(
+          backgroundColor: Colors.blueAccent,
           leading: IconButton(
             icon: const Icon(Icons.add),
             onPressed: () {
@@ -163,9 +162,14 @@ class _HomeState extends State<Home> {
                           "5-day forecast",
                           textAlign: TextAlign.center,
                           style: TextStyle(
+                            color: Colors.black,
                             fontSize: 18.0,
                           ),
                         ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blueAccent, // Background color
+                        ),
+                        //style: ButtonStyle(backgroundColor: MaterialStateProperty<Color> : Colors.blueAccent,,),
                       ),
                     ),
                     Column(
@@ -214,6 +218,29 @@ class WeatherInfoRow extends StatelessWidget {
   }
 }
 
+
+class WeatherApi {
+  static Future<List<String>> searchCities(String query) async {
+    final response = await http.get(
+      Uri.parse('http://api.openweathermap.org/data/2.5/find?q=$query&type=like&sort=population&cnt=30&appid=d8079ab1c58e21dfde257711941b9496'),
+    );
+
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      final List<String> cityNames = (data['list'] as List)
+          .map((city) => city['name'].toString())
+          .toList();
+      return cityNames;
+    } else {
+      throw Exception('Failed to search cities');
+    }
+  }
+}
+
+
+
+
+
 class WeatherDataRow extends StatelessWidget {
   final String time1;
   final String time2;
@@ -253,6 +280,7 @@ class FiveDayForecastPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        backgroundColor: Colors.blueAccent,
         title: Text("5-Day Forecast"),
         leading: IconButton(
           icon: Icon(Icons.arrow_back),
@@ -455,11 +483,60 @@ class FiveDayForecastPage extends StatelessWidget {
   }
 }
 
-class CitySelectPage extends StatelessWidget {
-  final List<CityData> cities = [
-    CityData(name: 'Pilani', aqi: 165, minTemp: 23, maxTemp: 40, currentTemp: 39),
-    CityData(name: 'Delhi', aqi: 158, minTemp: 24, maxTemp: 39, currentTemp: 35),
-  ];
+
+
+class CitySelectPage extends StatefulWidget {
+  @override
+  _CitySelectPageState createState() => _CitySelectPageState();
+}
+
+class _CitySelectPageState extends State<CitySelectPage> {
+  TextEditingController _searchController = TextEditingController();
+  List<String> cities = [];
+  List<String> filteredCities = [];
+  _HomeState homeState = _HomeState();
+  CityData selectedCity = CityData(name: '', aqi: 0, minTemp: 0, maxTemp: 0, currentTemp: 0);
+
+  @override
+  void initState() {
+    super.initState();
+    fetchCities();
+  }
+
+  Future<void> fetchCities() async {
+    try {
+      final response = await http.get(Uri.parse(
+          'http://api.openweathermap.org/data/2.5/find?q=&type=like&sort=population&cnt=30&appid=YOUR_API_KEY'));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final List<String> fetchedCities = (data['list'] as List)
+            .map((city) => city['name'].toString())
+            .toList();
+
+        setState(() {
+          cities.clear();
+          cities.addAll(fetchedCities);
+          filteredCities = List.from(cities);
+        });
+      } else {
+        throw Exception('Failed to load cities');
+      }
+    } catch (e) {
+      print('Error fetching cities: $e');
+    }
+  }
+
+  Future<void> searchCities(String query) async {
+    try {
+      final results = await WeatherApi.searchCities(query);
+      setState(() {
+        filteredCities = results;
+      });
+    } catch (e) {
+      print('Error searching cities: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -467,6 +544,7 @@ class CitySelectPage extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
+        backgroundColor: Colors.blueAccent,
         title: Center(child: Text("Manage cities")),
         actions: [
           IconButton(
@@ -488,24 +566,26 @@ class CitySelectPage extends StatelessWidget {
             width: size.width,
             height: size.height / 10,
             child: TextField(
+              controller: _searchController,
+              onChanged: (query) {
+                searchCities(query);
+              },
               decoration: InputDecoration(
+                hintText: 'Search for cities...',
                 prefixIcon: Icon(Icons.search),
-                hintText: 'Search',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(25.0),
-                ),
               ),
             ),
           ),
           SizedBox(height: 5),
           Expanded(
             child: ListView.builder(
-              itemCount: cities.length,
+              itemCount: filteredCities.length,
               itemBuilder: (context, index) {
                 return CityButton(
-                  city: cities[index],
-                  onCitySelected: (selectedCity) {
-                    Navigator.pop(context, selectedCity);
+                  city: filteredCities[index],
+                  onCitySelected:() {
+                    homeState.updateWeatherData(filteredCities[index]);
+                    Navigator.pop(context);
                   },
                 );
               },
@@ -518,9 +598,10 @@ class CitySelectPage extends StatelessWidget {
 }
 
 
+
 class CityButton extends StatelessWidget {
-  final CityData city;
-  final Function(CityData) onCitySelected;
+  final String city;
+  final Function onCitySelected;
 
   CityButton({required this.city, required this.onCitySelected});
 
@@ -530,7 +611,8 @@ class CityButton extends StatelessWidget {
       padding: const EdgeInsets.all(7.0),
       child: ElevatedButton(
         onPressed: () {
-          onCitySelected(city);
+          print('CityButton pressed for city: $city');
+          onCitySelected();
         },
         style: ElevatedButton.styleFrom(
           padding: EdgeInsets.all(15.0),
@@ -543,29 +625,9 @@ class CityButton extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    city.name,
-                    style: TextStyle(fontSize: 18, color: Colors.white),
-                  ),
-                  Text(
-                    "AQI ${city.aqi} ${city.minTemp}° / ${city.maxTemp}°",
-                    style: TextStyle(fontSize: 14, color: Colors.white),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    "${city.currentTemp}°",
-                    style: TextStyle(fontSize: 39, color: Colors.white),
-                  ),
-                ],
+              child: Text(
+                city,
+                style: TextStyle(fontSize: 18, color: Colors.black),
               ),
             ),
           ],
@@ -574,7 +636,6 @@ class CityButton extends StatelessWidget {
     );
   }
 }
-
 class CityData {
   final String name;
   final int aqi;
@@ -590,3 +651,5 @@ class CityData {
     required this.currentTemp,
   });
 }
+
+
