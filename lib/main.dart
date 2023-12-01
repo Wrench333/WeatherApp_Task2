@@ -571,7 +571,7 @@ class _CitySelectPageState extends State<CitySelectPage> {
                 searchCities(query);
               },
               decoration: InputDecoration(
-                hintText: 'Search for cities...',
+                hintText: 'Search',
                 prefixIcon: Icon(Icons.search),
               ),
             ),
